@@ -10,9 +10,9 @@ fi
 echo "Updating system packages"
 tdnf update -y
 
-#### Install system packages (for VMware Customization specs) ###
+### Install system packages (for VMware Customization specs) ###
 echo "Install needed system packges"
-tdnf install -y cloud-init perl cronie sudo logrotate parted gptfdisk cloud-utils initscripts openssl-c_rehash
+tdnf install -y cloud-init perl cronie sudo logrotate parted gptfdisk cloud-utils initscripts openssl-c_rehash python3-pip 
 
 ### Optional - Disable permanently disable SELinux if enabled
 echo "Disabling SELinux if enabled"
@@ -101,16 +101,38 @@ touch /etc/cloud/cloud-init.disabled
 echo "Creating the runonce.sh script to launch cloud-init via cron (allows VMware customization spec to finish safely)"
 cat <<EOF > /etc/cloud/runonce.sh
 #!/bin/bash
-sudo rm -rf /etc/cloud/cloud-init.disabled
-crontab -r
+# cloud-init runonce
+## Enable cloud-init
+sudo rm -f /etc/cloud/cloud-init.disabled
+## Initialize cloud-init
+sudo cloud-init init
+sleep 20
+sudo cloud-init modules --mode config
+sleep 20
+sudo cloud-init modules --mode final
+## Mark cloud-init complete
+sudo touch /etc/cloud/cloud-init.disabled
+sudo touch /tmp/cloud-init.complete
+sudo crontab -r
 EOF
-
+sudo chmod +rx /etc/cloud/runonce.sh
 ### Create a cron job that waits for VMware customization spec to reboot the VM
 ### 1 time, then execute the runonce.sh defined above
 echo "Creating the cronjob to delay cloud-init"
 crontab -l | { cat; echo "@reboot ( sudo sh /etc/cloud/runonce.sh )"; } | crontab -
 
-###Create a cleanup script for build vra template. ### 
+### Create an environment file to point python to the system maintained ca-bundle ###
+echo "Setting python environment to use system ca-bundle"
+cat <<EOF > /etc/profile.d/ca_root.sh
+# Set python Requests module to use system CA default
+export REQUESTS_CA_BUNDLE=/etc/pki/tls/certs/ca-bundle.crt
+EOF
+chmod 644 /etc/profile.d/ca_root.sh
+
+### Install pip3 module to use system certs
+sudo pip install pip_system_certs
+
+### Create a cleanup script for build vra template. ### 
 echo "Creating a script to prepare the VM to become a template"
 cat <<EOF > /etc/cloud/clean.sh
 #!/bin/bash
